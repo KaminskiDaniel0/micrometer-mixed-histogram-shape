@@ -28,6 +28,25 @@ All three tests pass. The one that reproduces the defect asserts that the scrape
 
 ## What the tests show
 
+`MergedFamilyTest` covers the defect in `MicrometerCollector.collect()`. `MixedHistogramShapeTest`
+covers how a meter arrives at the mixed shape and whether the registry ever repairs it.
+
+### 0. `MergedFamilyTest`
+
+Two timers under one name, one with service level objectives set in code and one without. No
+`MeterFilter` takes part, so this isolates the merge from the configuration question.
+
+`MicrometerCollector.collect()` groups data points into `Map<String, Family> families`, keyed by the
+convention name alone. The map is a **raw type**, so `matchingFamily.addSamples(...)` adds data points
+of one shape to a list meant for the other with no check. The `metricSnapshotFactory` of whichever
+family the loop meets first wraps the mixed list.
+
+The direction of the cast is arbitrary. Both tests register the shapeless timer first, yet they fail in
+opposite directions, because the winning factory follows the iteration order of
+`MicrometerCollector.children` — a `ConcurrentHashMap` keyed by `Meter.Id`, so it depends on the tag
+values. Out of 40 tag pairs tried, 30 gave one direction and 10 the other. Neither the reported
+snapshot type nor the writer method in the stack trace identifies the real problem.
+
 ### 1. `baselineScrapesCleanly`
 
 The healthy case. `PropertiesMeterFilter` is installed before any meter exists, so every timer of
@@ -99,3 +118,7 @@ The production case is **not** fully explained by this reproducer. The Micromete
 not appear in the production log at all, so there the filter was not installed late. The reproducer
 shows what a meter with an empty distribution configuration does to the scrape, and that the registry
 never repairs it. How that one meter ended up unconfigured in production is still open.
+
+## Bug report
+
+`BUG_REPORT.md` holds the draft for `micrometer-metrics/micrometer`.
