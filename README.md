@@ -15,8 +15,8 @@ so the process disappears from monitoring without going red anywhere. Only a res
 
 ## Versions
 
-Spring Boot 4.1.0, Micrometer 1.17.0, `prometheus-metrics-exposition-textformats` 1.5.1. The behaviour
-is not new to these versions; the same failure was observed on Spring Boot 3.x.
+Spring Boot 4.1.0, Micrometer 1.17.0, `prometheus-metrics-exposition-textformats` 1.5.1. The merge in
+`MicrometerCollector` is not new to these versions; only these versions were measured.
 
 ## Run it
 
@@ -24,7 +24,7 @@ is not new to these versions; the same failure was observed on Spring Boot 3.x.
 mvn test
 ```
 
-All three tests pass. The one that reproduces the defect asserts that the scrape throws.
+All five tests pass. The one that reproduces the defect asserts that the scrape throws.
 
 ## What the tests show
 
@@ -99,25 +99,27 @@ Two directions would both help:
 * Rebuild the meter when a late filter marks its id stale, instead of unmarking the id and returning
   the meter that the filter never configured.
 
-## Field notes from production
+## How this looks on a running service
 
-The failure was observed on two environments of the same service, on different endpoints and different
-status codes, which is why the affected series looks arbitrary:
+The failure has been seen on long-running deployments of a Spring Boot service, on more than one
+environment. Two observations from those sightings are worth repeating, because they shape what a fix
+would have to achieve.
 
-| Environment | series |
-| --- | --- |
-| DEV | `http_server_requests_seconds{method=GET, status=400, outcome=CLIENT_ERROR, uri=/analytics/v1/timelines}` |
-| PROD | `http.server.requests{outcome=SUCCESS, status=200, uri=/v2/activities/{activity-id}}` |
+**The affected series looks arbitrary.** Different deployments lost a different member of the same
+family, on different endpoints, methods and status codes. Nothing about the endpoint predicts it.
 
-A heap dump of the affected PROD pod named the series: 53 timers in the family, 52 with a
-`PrometheusHistogram`, one with `PrometheusTimer.histogram == null` and
-`AbstractTimer.histogram == NoopHistogram`. Of all 458 timers in that heap, this was the only family
-with a mixed shape.
+**A heap dump is the only thing that names it.** On an affected instance the family held 53 timers.
+52 carried a `PrometheusHistogram`; one had `PrometheusTimer.histogram == null` and
+`AbstractTimer.histogram == NoopHistogram`. Of 458 timers in that heap, this was the only family with
+a mixed shape. Reading the `AbstractTimer` field alone is misleading, because a timer that publishes
+percentiles rather than buckets also carries a non-histogram there; the Prometheus-side field is the
+one that decides.
 
-The production case is **not** fully explained by this reproducer. The Micrometer warning above does
-not appear in the production log at all, so there the filter was not installed late. The reproducer
-shows what a meter with an empty distribution configuration does to the scrape, and that the registry
-never repairs it. How that one meter ended up unconfigured in production is still open.
+**The reproducer does not explain every sighting.** In the scenario of test 2 Micrometer logs its
+late-filter warning. On the instances observed that warning was absent, so a late filter was not what
+happened there. What this project shows is what a meter with an empty distribution configuration does
+to the scrape, and that the registry never repairs it. How such a meter can arise while the filter
+chain is fully in place is still open.
 
 ## Bug report
 

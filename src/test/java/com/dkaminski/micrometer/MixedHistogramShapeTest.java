@@ -59,8 +59,8 @@ class MixedHistogramShapeTest {
 
         final PrometheusMeterRegistry registry = newRegistry();
 
-        // The one meter that misses the filter. In production this is an ordinary request, not a probe.
-        final Timer early = registerTimer(registry, "/activities/{activity-id}");
+        // The one meter that misses the filter. In a real application this is an ordinary request.
+        final Timer early = registerTimer(registry, "/entity/{entity-id}");
         assertThat(early.takeSnapshot().histogramCounts()).isEmpty();
 
         registry.config().meterFilter(sloFilter());
@@ -69,7 +69,7 @@ class MixedHistogramShapeTest {
 
         // Re-registering the same id returns the very same unconfigured Timer. The registry marks the id stale when
         // the filter arrives late, but it never rebuilds the meter, so the family keeps both shapes.
-        final Timer afterFilter = registerTimer(registry, "/activities/{activity-id}");
+        final Timer afterFilter = registerTimer(registry, "/entity/{entity-id}");
         assertThat(afterFilter).isSameAs(early);
         assertThat(afterFilter.takeSnapshot().histogramCounts()).isEmpty();
 

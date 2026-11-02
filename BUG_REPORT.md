@@ -52,7 +52,8 @@ same convention name.
 ## Environment
 
 Micrometer 1.17.0, `micrometer-registry-prometheus` 1.17.0, `prometheus-metrics-exposition-textformats`
-1.5.1, Spring Boot 4.1.0, Java 21. The same failure has been observed on Spring Boot 3.x.
+1.5.1, Spring Boot 4.1.0, Java 21. The merge in `MicrometerCollector` is not new to this version; only
+these versions were measured.
 
 ## To Reproduce
 
@@ -78,8 +79,9 @@ improvement over the current failure:
 * Fail fast at registration, naming the meter whose shape disagrees with its family, instead of at
   scrape time naming only two snapshot classes.
 
-The practical point is diagnosis. Today the exception names the cast, never the metric. Finding the
-offending series in production needed a per-family probe with `?includedNames=` and then a heap dump.
+The practical point is diagnosis. Today the exception names the cast, never the metric. On a running
+instance, narrowing it down takes a per-family probe with `?includedNames=` to find the family, and
+then a heap dump to find the member — for a failure the registry could have named at registration.
 
 ## A second, related finding
 
