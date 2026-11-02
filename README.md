@@ -15,8 +15,9 @@ so the process disappears from monitoring without going red anywhere. Only a res
 
 ## Versions
 
-Spring Boot 4.1.0, Micrometer 1.17.0, `prometheus-metrics-exposition-textformats` 1.5.1. The merge in
-`MicrometerCollector` is not new to these versions; only these versions were measured.
+Spring Boot 4.1.0, Micrometer 1.17.2, `prometheus-metrics-exposition-textformats` 1.5.1, Java 21.
+1.17.2 is the newest patch of the 1.17 line; 1.17.0 behaves identically. The merge in
+`MicrometerCollector` is not new to these versions, but only these were measured.
 
 ## Run it
 

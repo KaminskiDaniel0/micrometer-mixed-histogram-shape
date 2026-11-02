@@ -23,7 +23,7 @@ the dashboards until it restarts.
 
 ## Where it happens
 
-`io.micrometer.prometheusmetrics.MicrometerCollector#collect` (1.17.0):
+`io.micrometer.prometheusmetrics.MicrometerCollector#collect`:
 
 ```java
 Map<String, Family> families = new HashMap<>();      // raw type
@@ -51,9 +51,12 @@ same convention name.
 
 ## Environment
 
-Micrometer 1.17.0, `micrometer-registry-prometheus` 1.17.0, `prometheus-metrics-exposition-textformats`
-1.5.1, Spring Boot 4.1.0, Java 21. The merge in `MicrometerCollector` is not new to this version; only
-these versions were measured.
+* Micrometer version: 1.17.2 (newest patch of the 1.17 line; 1.17.0 behaves identically)
+* Micrometer registry: prometheus, with `prometheus-metrics-exposition-textformats` 1.5.1
+* OS: Linux
+* Java version: 21
+* Spring Boot 4.1.0, used only for `PropertiesMeterFilter` in the second finding below. The merge
+  itself needs no Spring.
 
 ## To Reproduce
 

@@ -18,6 +18,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Newest patch of the 1.17 line. 1.17.0 behaves identically. -->
+        <micrometer.version>1.17.2</micrometer.version>
     </properties>
 
     <dependencies>
