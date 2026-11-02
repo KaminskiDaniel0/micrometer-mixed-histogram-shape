@@ -126,7 +126,7 @@ chain is fully in place is still open.
 
 Two drafts, deliberately separate, because they are two different defects:
 
-* `BUG_REPORT.md` — a new bug report for `micrometer-metrics/micrometer`: `MicrometerCollector.collect()`
+* `BUG_REPORT.md` — filed as micrometer issue #8141: `MicrometerCollector.collect()`
   merges two shapes under one name into an invalid `MetricSnapshot`. Covered by `MergedFamilyTest`.
 * `COMMENT_4920.md` — a comment for micrometer issue #4920, whose warning asks for use cases: a late
   `MeterFilter` leaves a meter permanently unconfigured. Covered by `MixedHistogramShapeTest`.

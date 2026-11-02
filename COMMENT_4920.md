@@ -38,5 +38,4 @@ Rebuilding the meter when a late filter marks its id stale, instead of unmarking
 the meter the filter never configured. Failing that, the warning could say what it costs on a registry
 whose exposition format is shape-sensitive.
 
-The resulting invalid snapshot is a separate matter, reported on its own: see
-`MicrometerCollector.collect()` merging two shapes under one name.
+The resulting invalid snapshot is a separate matter, reported on its own in #8141.
