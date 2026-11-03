@@ -18,8 +18,10 @@
 
     <properties>
         <java.version>21</java.version>
-        <!-- Newest patch of the 1.17 line. 1.17.0 behaves identically. -->
-        <micrometer.version>1.17.2</micrometer.version>
+        <!-- Maintainer asked to measure against 1.18.0-RC1. 1.17.2 is the newest patch of the 1.17 line. -->
+        <micrometer.version>1.18.0-RC1</micrometer.version>
+        <!-- 1.18.0-RC1 needs the prometheus client that Spring Boot 4.1.0 does not pin yet. -->
+        <prometheus-client.version>1.10.0</prometheus-client.version>
     </properties>
 
     <dependencies>
@@ -43,6 +45,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- The rejection of a conflicting meter is announced once per JVM, so each test class needs its
+                         own JVM. Otherwise the class that runs first consumes the one WARN. -->
+                    <reuseForks>false</reuseForks>
+                </configuration>
             </plugin>
         </plugins>
     </build>

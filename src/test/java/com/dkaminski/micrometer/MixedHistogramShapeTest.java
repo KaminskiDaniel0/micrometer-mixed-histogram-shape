@@ -20,16 +20,17 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * One meter family, two shapes. When a single timer of a family carries no histogram while its siblings do, the
- * Prometheus exposition writer builds one snapshot for the family and then fails on a cast while rendering it. The
- * scrape endpoint answers 500 and the process is invisible to monitoring until it restarts.
+ * One meter family, two shapes, measured against Micrometer 1.18.0-RC1.
  *
- * <p>The three tests below separate the cause from the symptom. {@link #baselineScrapesCleanly()} shows the healthy
- * case. {@link #aMeterRegisteredBeforeTheFilterKeepsItsEmptyShapeForever()} produces the broken family on purpose and
- * shows that the registry never repairs it. {@link #concurrentRegistrationIsSafe()} is a negative control.
+ * <p>The question these tests answer is what a meter that misses its {@code MeterFilter} costs on the new version.
+ * On 1.17.2 it cost the whole scrape: the exposition writer failed on a cast and the endpoint answered 500. On
+ * 1.18.0-RC1 the scrape stays up, and the cost moves to the series that are no longer exposed.
+ *
+ * <p>{@link #baselineScrapesCleanly()} shows the healthy case. {@link #aMeterRegisteredBeforeTheFilterTakesTheWholeFamilyDownWithIt()}
+ * produces the mixed family on purpose and measures what reaches the scrape.
+ * {@link #concurrentRegistrationIsSafe()} is a negative control.
  */
 class MixedHistogramShapeTest {
 
@@ -54,9 +55,10 @@ class MixedHistogramShapeTest {
     }
 
     @Test
-    @DisplayName("A timer registered before the filter stays unconfigured and breaks the scrape for good")
-    void aMeterRegisteredBeforeTheFilterKeepsItsEmptyShapeForever() {
+    @DisplayName("A timer registered before the filter keeps the family on its shape and shuts the rest out")
+    void aMeterRegisteredBeforeTheFilterTakesTheWholeFamilyDownWithIt() {
 
+        // having
         final PrometheusMeterRegistry registry = newRegistry();
 
         // The one meter that misses the filter. In a real application this is an ordinary request.
@@ -65,21 +67,30 @@ class MixedHistogramShapeTest {
 
         registry.config().meterFilter(sloFilter());
 
+        // when
         registerTimers(registry, 10);
 
+        // then
         // Re-registering the same id returns the very same unconfigured Timer. The registry marks the id stale when
         // the filter arrives late, but it never rebuilds the meter, so the family keeps both shapes.
         final Timer afterFilter = registerTimer(registry, "/entity/{entity-id}");
         assertThat(afterFilter).isSameAs(early);
         assertThat(afterFilter.takeSnapshot().histogramCounts()).isEmpty();
 
-        assertThatThrownBy(registry::scrape)
-            .isInstanceOf(ClassCastException.class)
-            .hasMessageContaining("SummaryDataPointSnapshot")
-            .hasMessageContaining("HistogramDataPointSnapshot");
+        // The scrape no longer throws. It carries the shape of the meter that registered first, and that one meter is
+        // the unconfigured one, so the ten correctly configured timers are refused and never reach Prometheus.
+        assertThatCode(registry::scrape).doesNotThrowAnyException();
+        assertThatCode(() -> registry.scrape("application/openmetrics-text")).doesNotThrowAnyException();
 
-        assertThatThrownBy(() -> registry.scrape("application/openmetrics-text"))
-            .isInstanceOf(ClassCastException.class);
+        final String scrape = registry.scrape();
+        assertThat(scrape).contains("# TYPE http_server_requests_seconds summary")
+            .contains("uri=\"/entity/{entity-id}\"")
+            .doesNotContain("uri=\"/resource/0\"");
+        assertThat(bucketCounts(scrape)).isEmpty();
+
+        // All eleven meters are alive in the registry; the scrape shows one of them.
+        assertThat(registry.getMeters()).hasSize(11);
+        assertThat(seriesCount(scrape)).isEqualTo(1);
     }
 
     @Test
@@ -148,6 +159,15 @@ class MixedHistogramShapeTest {
             .register(registry);
         timer.record(5, TimeUnit.MILLISECONDS);
         return timer;
+    }
+
+    /**
+     * The number of series of the family in a scrape, counted over the {@code _count} lines of the summary shape and
+     * the {@code _count} lines of the histogram shape alike.
+     */
+    private static long seriesCount(final String scrape) {
+
+        return scrape.lines().filter(line -> line.startsWith(FAMILY.replace('.', '_') + "_seconds_count")).count();
     }
 
     /**

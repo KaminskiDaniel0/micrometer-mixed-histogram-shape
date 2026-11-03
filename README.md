@@ -1,23 +1,34 @@
 # micrometer-mixed-histogram-shape
 
-A Prometheus scrape that fails with a `ClassCastException` because one meter of a family carries no
-histogram while its siblings do.
+What one meter of a family without a histogram does to a Prometheus scrape while its siblings carry
+buckets.
 
-```
-java.lang.ClassCastException: class io.prometheus.metrics.model.snapshots.SummarySnapshot$SummaryDataPointSnapshot
-  cannot be cast to class io.prometheus.metrics.model.snapshots.HistogramSnapshot$HistogramDataPointSnapshot
-    at io.prometheus.metrics.expositionformats.OpenMetricsTextFormatWriter.writeClassicHistogramBuckets(...)
-    at io.prometheus.metrics.expositionformats.OpenMetricsTextFormatWriter.writeHistogram(...)
-```
-
-The scrape endpoint then answers HTTP 500. It delivers no families at all, not even the healthy ones,
-so the process disappears from monitoring without going red anywhere. Only a restart clears it.
+On 1.17.2 the scrape answered HTTP 500 with a `ClassCastException` and delivered no family at all, not
+even the healthy ones. On 1.18.0-RC1 the scrape answers 200 and delivers the shape that registered
+first, while every meter of the other shape is refused and silently absent.
 
 ## Versions
 
-Spring Boot 4.1.0, Micrometer 1.17.2, `prometheus-metrics-exposition-textformats` 1.5.1, Java 21.
-1.17.2 is the newest patch of the 1.17 line; 1.17.0 behaves identically. The merge in
-`MicrometerCollector` is not new to these versions, but only these were measured.
+**This branch measures Micrometer 1.18.0-RC1**, as asked for in issue #8141. Spring Boot 4.1.0,
+`prometheus-metrics-*` 1.10.0 (1.18.0-RC1 needs it; Boot 4.1.0 still pins 1.5.1), Java 21. The `main`
+branch measures 1.17.2, the newest patch of the 1.17 line; 1.17.0 behaves identically there.
+
+## What changed on 1.18.0-RC1
+
+The scrape no longer breaks. `PrometheusMeterRegistry` rejects the conflicting meter at registration
+time and the endpoint answers 200. Three things are worth stating precisely, because they decide what
+an operator sees.
+
+1. **The first shape of a family wins, and the rest are shut out.** In the late-filter scenario the
+   unconfigured meter registers first, so all ten correctly configured timers are refused. The scrape
+   carries one series instead of eleven. On 1.17.2 the same setup delivered no series at all, so this
+   is an improvement, but the loss is not limited to the odd meter.
+2. **A refused meter stays alive and invisible.** It remains in `registry.getMeters()`, it accepts
+   recordings, and re-registering its id returns the very same instance. Nothing on the application
+   side can tell that it never reaches Prometheus.
+3. **The rejection is announced once per JVM.** The first refused meter is named at WARN; every later
+   one is logged at DEBUG, across families and across registries. A service that trips this on two
+   families learns the name of one meter and nothing about the other.
 
 ## Run it
 
@@ -25,7 +36,8 @@ Spring Boot 4.1.0, Micrometer 1.17.2, `prometheus-metrics-exposition-textformats
 mvn test
 ```
 
-All five tests pass. The one that reproduces the defect asserts that the scrape throws.
+All seven tests pass. Each test class runs in its own JVM, because the rejection WARN fires once per
+JVM and the class that runs first would otherwise consume it.
 
 ## What the tests show
 
@@ -35,18 +47,18 @@ covers how a meter arrives at the mixed shape and whether the registry ever repa
 ### 0. `MergedFamilyTest`
 
 Two timers under one name, one with service level objectives set in code and one without. No
-`MeterFilter` takes part, so this isolates the merge from the configuration question.
+`MeterFilter` takes part, so this isolates the registry's own handling from the configuration question.
 
-`MicrometerCollector.collect()` groups data points into `Map<String, Family> families`, keyed by the
-convention name alone. The map is a **raw type**, so `matchingFamily.addSamples(...)` adds data points
-of one shape to a list meant for the other with no check. The `metricSnapshotFactory` of whichever
-family the loop meets first wraps the mixed list.
+On 1.17.2 `MicrometerCollector.collect()` merged both into one snapshot that contradicted its own type,
+and the cast direction was arbitrary. On 1.18.0-RC1 the merge is gone: the second shape is refused at
+registration, the scrape succeeds, and the three tests here pin what survives. The first registered
+shape wins the family, order decides and not the shape, and the refused meter keeps recording while
+never appearing in the exposition.
 
-The direction of the cast is arbitrary. Both tests register the shapeless timer first, yet they fail in
-opposite directions, because the winning factory follows the iteration order of
-`MicrometerCollector.children` — a `ConcurrentHashMap` keyed by `Meter.Id`, so it depends on the tag
-values. Out of 40 tag pairs tried, 30 gave one direction and 10 the other. Neither the reported
-snapshot type nor the writer method in the stack trace identifies the real problem.
+### 0b. `ConflictWarningTest`
+
+Two fresh registries, each with one conflict. The first rejection is named at WARN, the second is
+logged at DEBUG. The suppression is per JVM, not per registry and not per family.
 
 ### 1. `baselineScrapesCleanly`
 
@@ -55,7 +67,7 @@ The healthy case. `PropertiesMeterFilter` is installed before any meter exists, 
 `management.metrics.distribution.slo[http.server.requests]`. Every series carries the same 17 buckets
 and the scrape succeeds.
 
-### 2. `aMeterRegisteredBeforeTheFilterKeepsItsEmptyShapeForever`
+### 2. `aMeterRegisteredBeforeTheFilterTakesTheWholeFamilyDownWithIt`
 
 One timer registers before the filter is installed. It receives an empty `DistributionStatisticConfig`
 and therefore no histogram. The filter is installed afterwards, and the remaining timers of the same
@@ -70,11 +82,14 @@ From then on the family carries two shapes, and that state is permanent:
   only runs when no meter exists yet.
 
 The test asserts the identity directly: the `Timer` returned after the filter was installed is the
-same object as the one created before it, and it still reports no histogram counts. Both exposition
-formats then throw.
+same object as the one created before it, and it still reports no histogram counts.
+
+On 1.18.0-RC1 the consequence shifts. The unconfigured meter registered first, so it owns the family,
+and the ten timers that the filter configured correctly are all refused. The scrape carries one series
+where eleven meters exist, and it carries no buckets at all. The test measures exactly that.
 
 So the warning that Micrometer logs here is not advisory. For a Prometheus registry it predicts a
-permanently broken scrape:
+family reduced to its first member:
 
 ```
 A MeterFilter is being configured after a Meter has been registered to this registry. ...
@@ -88,17 +103,19 @@ from the start. Nothing is lost. This is expected, because `getOrCreateMeter` ap
 inside `synchronized (meterMapLock)` and `MeterRegistry.filters` is `volatile`. The test exists so
 that a concurrency explanation can be ruled out rather than assumed.
 
-## Why this matters beyond the warning
+## Why this still matters on 1.18.0-RC1
 
-One meter without a histogram does not degrade one series. It removes the whole scrape. A library that
-treats the mixed shape as a configuration mistake still leaves the operator with a 500 and no
-indication of which series caused it, because the exposition writer reports the cast, not the name.
+The 500 is gone, and that is the larger half of the problem solved. What remains is that the surviving
+shape is picked by registration order rather than by what the configuration asked for. When the odd
+meter happens to register first, the family loses every correctly configured member instead of the one
+odd one, and an operator reading the scrape sees a plausible metric with most of its series missing.
 
-Two directions would both help:
+Two directions would still help:
 
-* Let the exposition writer skip or report the offending family instead of failing the whole response.
+* Decide the family by the configured shape rather than by which meter arrived first, or refuse the
+  minority rather than the majority.
 * Rebuild the meter when a late filter marks its id stale, instead of unmarking the id and returning
-  the meter that the filter never configured.
+  the meter that the filter never configured. That removes the cause instead of handling it.
 
 ## How this looks on a running service
 
