@@ -145,6 +145,8 @@ Two drafts, deliberately separate, because they are two different defects:
 
 * `BUG_REPORT.md` — filed as micrometer issue #8141: `MicrometerCollector.collect()`
   merges two shapes under one name into an invalid `MetricSnapshot`. Covered by `MergedFamilyTest`.
+* `COMMENT_8141_RC1.md` — the reply on issue #8141 after measuring 1.18.0-RC1: what the new
+  registration-time rejection fixes, and the three things it leaves to the operator.
 * `COMMENT_4920.md` — a short note for micrometer issue #4920: on a Prometheus registry a late
   `MeterFilter` is fatal rather than imprecise. The behaviour behind it is covered by
   `MixedHistogramShapeTest`.
