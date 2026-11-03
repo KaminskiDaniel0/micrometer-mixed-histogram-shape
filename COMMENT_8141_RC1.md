@@ -8,6 +8,13 @@ belongs to the metric family and that one of the two shapes has to lose. The thr
 compatible with that rule — they are about *which* shape loses, what happens to the loser, and whether
 an operator can find out.
 
+You are right about the snippet you copied, and I should have said so in the report: that code is
+invalid by construction. It lives in `MergedFamilyTest`, which is an isolation test — it writes the
+broken state out by hand so that no `MeterFilter` takes part, and all it measures is what the registry
+does with such a family. The scenario is the other test class, `MixedHistogramShapeTest`, where the
+configuration is a single valid `management.metrics.distribution.slo[...]` entry and nobody asks for
+two shapes. That is the case I am reporting, and I have reordered the README so it comes first.
+
 **The scrape failure is gone.** No `ClassCastException`, no HTTP 500, both exposition formats render.
 The conflicting meter is refused at registration and the warning names the meter id and both types.
 That is the larger half of this issue solved, thank you.

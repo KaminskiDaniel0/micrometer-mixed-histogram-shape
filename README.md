@@ -41,24 +41,10 @@ JVM and the class that runs first would otherwise consume it.
 
 ## What the tests show
 
-`MergedFamilyTest` covers the defect in `MicrometerCollector.collect()`. `MixedHistogramShapeTest`
-covers how a meter arrives at the mixed shape and whether the registry ever repairs it.
-
-### 0. `MergedFamilyTest`
-
-Two timers under one name, one with service level objectives set in code and one without. No
-`MeterFilter` takes part, so this isolates the registry's own handling from the configuration question.
-
-On 1.17.2 `MicrometerCollector.collect()` merged both into one snapshot that contradicted its own type,
-and the cast direction was arbitrary. On 1.18.0-RC1 the merge is gone: the second shape is refused at
-registration, the scrape succeeds, and the three tests here pin what survives. The first registered
-shape wins the family, order decides and not the shape, and the refused meter keeps recording while
-never appearing in the exposition.
-
-### 0b. `ConflictWarningTest`
-
-Two fresh registries, each with one conflict. The first rejection is named at WARN, the second is
-logged at DEBUG. The suppression is per JVM, not per registry and not per family.
+The order below is the order to read them in. `MixedHistogramShapeTest` carries the scenario: valid
+configuration, one meter that misses the filter, and what the scrape then delivers. `MergedFamilyTest`
+and `ConflictWarningTest` come after it, because they write the invalid state out by hand to isolate
+the registry's own behaviour from the question of how that state arises.
 
 ### 1. `baselineScrapesCleanly`
 
@@ -102,6 +88,25 @@ A negative control. 32 threads register 25 ids of the same family at once, with 
 from the start. Nothing is lost. This is expected, because `getOrCreateMeter` applies the filters
 inside `synchronized (meterMapLock)` and `MeterRegistry.filters` is `volatile`. The test exists so
 that a concurrency explanation can be ruled out rather than assumed.
+
+### 4. `MergedFamilyTest` — the isolation test
+
+Two timers under one name, one with service level objectives set in code and one without. **This code is
+invalid by construction, and deliberately so.** It writes the mixed family out by hand, with no
+`MeterFilter` anywhere, so that it measures one thing only: what the registry does with such a family.
+How an application arrives at that state is the question of tests 1 to 3 above. Do not read this class
+as the scenario.
+
+On 1.17.2 `MicrometerCollector.collect()` merged both into one snapshot that contradicted its own type,
+and the cast direction was arbitrary. On 1.18.0-RC1 the merge is gone: the second shape is refused at
+registration, the scrape succeeds, and the three tests here pin what survives. The first registered
+shape wins the family, order decides and not the shape, and the refused meter keeps recording while
+never appearing in the exposition.
+
+### 5. `ConflictWarningTest`
+
+Two fresh registries, each with one conflict. The first rejection is named at WARN, the second is
+logged at DEBUG. The suppression is per JVM, not per registry and not per family.
 
 ## Why this still matters on 1.18.0-RC1
 
